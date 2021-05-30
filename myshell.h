@@ -21,7 +21,7 @@ typedef struct jobs
 {
     char    pName[100];
     int     status;
-    pid_t   pId;
+    pid_t   pid;
 }s_JOBS;
 
 #endif
