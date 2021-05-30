@@ -8,13 +8,7 @@
 
 char    g_line[1000001];
 char    g_homeDir[1001];
-char    *g_status[] = {
-    "running",
-    "done",
-    "suspended",
-    "continued",
-    "terminated"
-};
+char    *g_status[3] = {"Running", "Stopped", "Done"};
 
 int     g_inFlag = 0;
 int     g_outFlag = 1;
@@ -83,6 +77,28 @@ void    trim(char *cmd)
     cmd[idx + 1] = '\0';
 }
 
+/********************************/
+/* function : deleteJob */
+/* purpose : delete job from g_job list */
+/* return : void */
+/********************************/
+void    delJob(int jobpid)
+{
+    int i;
+    int flag = 0;
+
+    for (i = 1; i < g_JOBCNT; i++)
+    {
+        //printf("jobpid : %d | %d\n ",jobpid, g_job[i].pId);
+        if (g_job[i].pId == jobpid)
+            flag = 1;
+
+        if (flag == 1)
+            g_job[i] = g_job[i + 1];
+    }
+    if (g_JOBCNT != 1) g_JOBCNT--;
+}
+
 // front Page of Shell
 void    frontPage()
 {
@@ -91,29 +107,51 @@ void    frontPage()
 
 void    handler(int sig)
 {
+    union wait state;
     // terminal interrupt
     if (sig == SIGINT)
     {
+        printf("SIGINT\n");
         frontPage();
         fflush(stdout);
     }
     // terminal stop
     else if (sig == SIGTSTP)
     {
+        //pid_t pid = wait3(&state, WNOHANG, (struct rusage *)NULL);
+        int pid = getpid();
+        int idx = pId_to_idx(pid);
+        g_job[idx].status = 1;
+        printf("SIGTSTP\n");
+        printf("[%d] %-20s %s\n", idx, g_status[g_job[idx].status], g_job[idx].pName);
         frontPage();
         fflush(stdout);
     }
     // terminal quit
     else if (sig == SIGQUIT)
     {
+        printf("SIGQUIT\n");
         frontPage();
         fflush(stdout);
     }
     // child process end
     else if (sig == SIGCHLD)
     {
-        signal(SIGCHLD, SIG_DFL);
-        fflush(stdout);
+        pid_t pID;
+
+        printf("SIGCHLD\n");
+        while (1)
+        {
+            pID = wait3(&state, WNOHANG, (struct rusage *)NULL);
+            int     idx = pId_to_idx(pID);
+            if (pID == 0 || pID == -1 || idx == -1)
+                return;
+            else
+            {
+                fprintf(stderr, "\n[%d] %-20s %s\n", idx, g_status[2], g_job[idx].pName);
+                delJob(pID);
+            }
+        }
     }
 }
 
@@ -153,9 +191,171 @@ void    exctCD(char **tokens)
 }
 
 /********************************/
-/* function : leftCrack */
-/* purpose : check < and open the file */
+/* function : exctPWD */
+/* purpose : print cur dir */
 /* return : void */
+/********************************/
+void    exctPWD(void)
+{
+    char curDir[1000];
+
+    getcwd(curDir, 1000);
+    printf("%s\n", curDir);
+}
+
+/********************************/
+/* function : exctECHO */
+/* purpose : print content */
+/* return : void */
+/********************************/
+void    exctECHO(char **tokens)
+{
+    int i;
+    int j;
+    char input[1000006];
+    int doubleFlag = 0;
+    int singleFlag = 0;
+
+    i = 1;
+    j = 0;
+    //checking for inverted commas
+    while (tokens[i] != NULL)
+    {
+        // read by tokensand chk "" or ''
+        for (int k = 0; tokens[i][k] != '\0'; k++)
+        {
+            // if " is not found
+            if (doubleFlag == 1)
+            {
+                if (tokens[i][k] == '\"')
+                    doubleFlag = 0;
+                else
+                    input[j++] = tokens[i][k];
+            }
+            // if ' is not found
+            else if (singleFlag == 1)
+            {
+                if (tokens[i][k] == '\'')
+                    singleFlag = 0;
+                else
+                    input[j++] = tokens[i][k];
+            }
+            else
+            {
+                if (tokens[i][k] == '\"')
+                    doubleFlag = 1;
+                else if (tokens[i][k] == '\'')
+                    singleFlag = 1;
+                else
+                    input[j++] = tokens[i][k];
+            }
+        }
+        i++;
+    }
+    input[j] = '\0';
+
+    // chk if ' or " is not finished
+    if (doubleFlag == 0 && singleFlag == 0)
+        printf("%s\n", input);
+    else
+        printf("Error: Wrong Input\n");
+}
+
+/********************************/
+/* function : exctJOBS */
+/* purpose : print all process */
+/* return : void */
+/********************************/
+void    exctJOBS()
+{
+    int i;
+
+    if (g_JOBCNT == 1)
+        return;
+    //printf("No background processes running\n");
+    for (i = 1; i < g_JOBCNT; i++)
+        printf("[%d] %-20s %s\n", i, g_status[g_job[i].status], g_job[i].pName);
+}
+
+/********************************/
+/* function : exctKILL */
+/* purpose : kill process */
+/* return : void */
+/********************************/
+void    exctKILL(char **tokens)
+{
+    // Error there is no parameter
+    if (tokens[1] == NULL)
+        printf("kill: usage: kill <jobs>\n");
+    else
+    {
+        kill(g_job[atoi(tokens[1])].pId, SIGINT);
+        delJob(g_job[atoi(tokens[1])].pId);
+        g_JOBCNT--;
+    }
+}
+
+void    exctOVERKILL(void)
+{
+    int i;
+
+    if (g_JOBCNT > 1)
+        for (i = g_JOBCNT - 1; i > 0; i--)
+        {
+            kill(g_job[i].pId, 9);
+            signal(SIGCHLD, handler);
+        }
+    else
+        printf("No Background Jobs detected.\n");
+    g_JOBCNT = 1;
+}
+
+void exctFG(char **tokens)
+{
+    int flag;
+    if (tokens[1] == NULL)
+        fprintf(stderr, "Error: invalid format\n");
+    else
+    {
+        int jobno = atoi(tokens[1]);
+        if (jobno < g_JOBCNT)
+        {
+            printf("%s\n",g_job[jobno].pName);
+            g_job[jobno].status = 0; 
+            kill(g_job[jobno].pId, SIGCONT);
+            g_job[jobno].status = 1;
+            delJob(g_job[jobno].pId);
+            wait(&flag);
+        }
+        else
+            printf("Job number does not exist\n");
+    }
+}
+
+void    exctBG(char **tokens)
+{
+    if(tokens[1] == NULL){
+            fprintf(stderr, "Error: invalid format\n");
+    }
+    else{
+        int jobno = atoi(tokens[1]);
+
+        if(jobno > g_JOBCNT || g_JOBCNT < 1){
+            fprintf(stderr, "Error: invalid job id\n");    
+        }
+        else{
+            g_job[jobno].status = 0;
+            kill(g_job[jobno].pId, SIGCONT);            // sigcont to continue process
+            g_job[jobno].status = 1;
+        }
+    }
+        
+}
+
+/********************************/
+/* function : whiteSpace */
+/* purpose : check out cmd is exist */
+/* return : int */
 /********************************/
 void leftCrack(char *tokens)
 {
@@ -174,9 +374,9 @@ void leftCrack(char *tokens)
 }
 
 /********************************/
-/* function : rightCrack */
-/* purpose : check > and open the file */
-/* return : void */
+/* function : whiteSpace */
+/* purpose : check out cmd is exist */
+/* return : int */
 /********************************/
 void rightCrack(char *tokens)
 {
@@ -221,9 +421,9 @@ int backgroundChk(char **tokens)
 }
 
 /********************************/
-/* function : exctCMD */
-/* purpose : excute line */
-/* return : void */
+/* function : whiteSpace */
+/* purpose : check out cmd is exist */
+/* return : int */
 /********************************/
 void exctCMD()
 {
@@ -269,6 +469,20 @@ void exctCMD()
                 _exit(0);
             else if (strcmp(tokens[0], "cd") == 0)
                 exctCD(tokens);
+            // else if (strcmp(tokens[0], "pwd") == 0)
+            //     exctPWD();
+            // else if (strcmp(tokens[0], "echo") == 0)
+            //     exctECHO(tokens);
+            else if (strcmp(tokens[0], "jobs") == 0)
+                exctJOBS();
+            // else if (strcmp(tokens[0], "kill") == 0)
+            //     exctKILL(tokens);
+            // // else if (strcmp(tokens[0], "overkill") == 0)
+            // //     exctOVERKILL();
+            // else if (strcmp(tokens[0], "fg") == 0)
+            //     exctFG(tokens);
+            // else if (strcmp(tokens[0], "bg") == 0)
+            //     exctBG(tokens);
             else
             {
                 // communicate to process

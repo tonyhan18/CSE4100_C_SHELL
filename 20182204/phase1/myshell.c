@@ -8,19 +8,11 @@
 
 char    g_line[1000001];
 char    g_homeDir[1001];
-char    *g_status[] = {
-    "running",
-    "done",
-    "suspended",
-    "continued",
-    "terminated"
-};
+char    *g_status[3] = {"Running", "Stopped", "Done"};
 
 int     g_inFlag = 0;
 int     g_outFlag = 1;
 int     g_JOBCNT = 1;
-
-s_JOBS  g_job[1001];
 
 /********************************/
 /* function : parse */
@@ -39,15 +31,6 @@ void    parse(char *cmd, char **tokens, char *limit)
         tokens[i++] = tmp;
         tmp = strtok(NULL, limit);
     }
-}
-
-int     pId_to_idx(int pId)
-{
-    for(int i = 1 ; i< g_JOBCNT; ++i)
-    {
-        if(g_job[i].pId == pId) return (i);
-    }
-    return (-1);
 }
 
 /********************************/
@@ -199,28 +182,6 @@ void rightCrack(char *tokens)
 }
 
 /********************************/
-/* function : backgroundChk */
-/* purpose : checkout if cmd need background */
-/* return : int */
-/********************************/
-int backgroundChk(char **tokens)
-{
-    int i;
-
-    i = 0;
-    while (tokens[i] != NULL)
-    {
-        if (strcmp(tokens[i], "&") == 0)
-        {
-            tokens[i] = NULL;
-            return (1);
-        }
-        i++;
-    }
-    return (0);
-}
-
-/********************************/
 /* function : exctCMD */
 /* purpose : excute line */
 /* return : void */
@@ -238,7 +199,7 @@ void exctCMD()
     while (tempSemi[j] != NULL)
     {
         int i = 0;
-        int fd[2];
+
         // parsing if there are pipeline and save to tempPipe
         parse(tempSemi[j], tempPipe, "|");
         while (tempPipe[i] != NULL)
@@ -260,7 +221,6 @@ void exctCMD()
             if (tokens[0] == NULL)
                 return;
 
-            int bgFlag = backgroundChk(tokens); // checkout if there is & mark
             signal(SIGCHLD, handler);           // check out child process is terminated
 
             // check out if cmd function is built-in
@@ -271,14 +231,6 @@ void exctCMD()
                 exctCD(tokens);
             else
             {
-                // communicate to process
-                if(pipe(fd) < 0 ){
-                    printf("pipe error\n");
-                    exit(1);
-                }
-                if (bgFlag)
-                    strcpy(g_job[g_JOBCNT].pName, cur_cmd);
-
                 pid_t pId;
                 int flag;
 
@@ -301,12 +253,6 @@ void exctCMD()
                         dup2(g_outFlag, STDOUT_FILENO);
                         close(g_outFlag);
                     }
-                    // if there is next pipeline
-                    if (tempPipe[i + 1] != NULL)
-                    {
-                        dup2(fd[1], STDOUT_FILENO);
-                        close(fd[1]);
-                    }
                     // executing command
                     if (execvp(*tokens, tokens) < 0)
                     {
@@ -317,18 +263,7 @@ void exctCMD()
                 // parent
                 else
                 {
-                    // Waiting for child process to end
-                    if (!bgFlag)
-                        wait(&flag);
-                    // if background process is started
-                    else
-                    {
-                        g_job[g_JOBCNT].status = 0;
-                        g_job[g_JOBCNT++].pId = pId;
-                        printf("[%d] %d\n", g_JOBCNT - 1, g_job[g_JOBCNT - 1].pId);
-                    }
-                    g_inFlag = fd[0];
-                    close(fd[1]);
+                    wait(&flag);
                 }
             }
             i++;
@@ -368,7 +303,9 @@ int main(int argc, char *argv[])
         // signal control
         //signal(SIGINT, SIG_IGN);          // terminal interrupt -> ignore
         //signal(SIGQUIT, SIG_IGN);         // terminal quit -> ignore
-        signal(SIGTSTP, SIG_DFL);         // terminal stop -> ignore
+        signal(SIGTSTP, SIG_DFL);
+        signal(SIGTTIN, SIG_DFL);
+        signal(SIGTTOU, SIG_DFL);
         if (signal(SIGINT, handler) == 0) // terminal interrupt -> handler
             continue;
         if (signal(SIGQUIT, handler) == 0) // terminal quit -> handler

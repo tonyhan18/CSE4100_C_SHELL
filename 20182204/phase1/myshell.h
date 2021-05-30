@@ -11,17 +11,4 @@
 #include <fcntl.h>
 #include <signal.h>
 
-#define STATUS_RUNNING 0
-#define STATUS_DONE 1
-#define STATUS_SUSPENDED 2
-#define STATUS_CONTINUED 3
-#define STATUS_TERMINATED 4
-
-typedef struct jobs
-{
-    char    pName[100];
-    int     status;
-    pid_t   pId;
-}s_JOBS;
-
 #endif

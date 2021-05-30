@@ -5,22 +5,15 @@
 ///////////////////////////////////
 
 #include "myshell.h"
+#define MAX_LINE 100001
 
-char    g_line[1000001];
+char    g_line[MAX_LINE];
 char    g_homeDir[1001];
-char    *g_status[] = {
-    "running",
-    "done",
-    "suspended",
-    "continued",
-    "terminated"
-};
+char    *g_status[3] = {"Running", "Stopped", "Done"};
 
 int     g_inFlag = 0;
 int     g_outFlag = 1;
 int     g_JOBCNT = 1;
-
-s_JOBS  g_job[1001];
 
 /********************************/
 /* function : parse */
@@ -39,15 +32,6 @@ void    parse(char *cmd, char **tokens, char *limit)
         tokens[i++] = tmp;
         tmp = strtok(NULL, limit);
     }
-}
-
-int     pId_to_idx(int pId)
-{
-    for(int i = 1 ; i< g_JOBCNT; ++i)
-    {
-        if(g_job[i].pId == pId) return (i);
-    }
-    return (-1);
 }
 
 /********************************/
@@ -152,10 +136,11 @@ void    exctCD(char **tokens)
         //perror("Error");
 }
 
+
 /********************************/
-/* function : leftCrack */
-/* purpose : check < and open the file */
-/* return : void */
+/* function : whiteSpace */
+/* purpose : check out cmd is exist */
+/* return : int */
 /********************************/
 void leftCrack(char *tokens)
 {
@@ -174,9 +159,9 @@ void leftCrack(char *tokens)
 }
 
 /********************************/
-/* function : rightCrack */
-/* purpose : check > and open the file */
-/* return : void */
+/* function : whiteSpace */
+/* purpose : check out cmd is exist */
+/* return : int */
 /********************************/
 void rightCrack(char *tokens)
 {
@@ -260,7 +245,6 @@ void exctCMD()
             if (tokens[0] == NULL)
                 return;
 
-            int bgFlag = backgroundChk(tokens); // checkout if there is & mark
             signal(SIGCHLD, handler);           // check out child process is terminated
 
             // check out if cmd function is built-in
@@ -276,8 +260,6 @@ void exctCMD()
                     printf("pipe error\n");
                     exit(1);
                 }
-                if (bgFlag)
-                    strcpy(g_job[g_JOBCNT].pName, cur_cmd);
 
                 pid_t pId;
                 int flag;
@@ -317,16 +299,7 @@ void exctCMD()
                 // parent
                 else
                 {
-                    // Waiting for child process to end
-                    if (!bgFlag)
-                        wait(&flag);
-                    // if background process is started
-                    else
-                    {
-                        g_job[g_JOBCNT].status = 0;
-                        g_job[g_JOBCNT++].pId = pId;
-                        printf("[%d] %d\n", g_JOBCNT - 1, g_job[g_JOBCNT - 1].pId);
-                    }
+                    wait(&flag);
                     g_inFlag = fd[0];
                     close(fd[1]);
                 }
@@ -368,7 +341,9 @@ int main(int argc, char *argv[])
         // signal control
         //signal(SIGINT, SIG_IGN);          // terminal interrupt -> ignore
         //signal(SIGQUIT, SIG_IGN);         // terminal quit -> ignore
-        signal(SIGTSTP, SIG_DFL);         // terminal stop -> ignore
+        signal(SIGTSTP, SIG_DFL);
+        signal(SIGTTIN, SIG_DFL);
+        signal(SIGTTOU, SIG_DFL);
         if (signal(SIGINT, handler) == 0) // terminal interrupt -> handler
             continue;
         if (signal(SIGQUIT, handler) == 0) // terminal quit -> handler
@@ -390,6 +365,8 @@ int main(int argc, char *argv[])
             continue;
         }
 
+        if(strlen(g_line) >= MAX_LINE - 1)
+            continue;
         //executing commands
         exctCMD();
     }
