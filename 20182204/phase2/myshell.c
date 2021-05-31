@@ -80,24 +80,27 @@ void    handler(int sig)
     {
         frontPage();
         fflush(stdout);
+        signal(SIGINT, SIG_DFL);
     }
     // terminal stop
     else if (sig == SIGTSTP)
     {
         frontPage();
         fflush(stdout);
+        signal(SIGTSTP, SIG_DFL);
     }
     // terminal quit
     else if (sig == SIGQUIT)
     {
         frontPage();
         fflush(stdout);
+        signal(SIGQUIT, SIG_DFL);
     }
-    // child process end
+    // child quit
     else if (sig == SIGCHLD)
     {
-        signal(SIGCHLD, SIG_DFL);
         fflush(stdout);
+        signal(SIGCHLD, SIG_DFL);
     }
 }
 
@@ -245,7 +248,17 @@ void exctCMD()
             if (tokens[0] == NULL)
                 return;
 
-            signal(SIGCHLD, handler);           // check out child process is terminated
+            // signal control
+            signal(SIGTTIN, SIG_DFL);
+            signal(SIGTTOU, SIG_DFL);
+            if(signal(SIGTSTP, handler) == 0)
+                sleep(0);
+            if (signal(SIGINT, handler) == 0) 
+                sleep(0);
+            if (signal(SIGQUIT, handler) == 0) 
+                sleep(0);
+            if (signal(SIGCHLD, handler) == 0) 
+                sleep(0);
 
             // check out if cmd function is built-in
             //strlwr(tokens[0]); // to lower the cmd
@@ -339,17 +352,16 @@ int main(int argc, char *argv[])
         g_line[0] = '\0';
 
         // signal control
-        //signal(SIGINT, SIG_IGN);          // terminal interrupt -> ignore
-        //signal(SIGQUIT, SIG_IGN);         // terminal quit -> ignore
-        signal(SIGTSTP, SIG_DFL);
         signal(SIGTTIN, SIG_DFL);
         signal(SIGTTOU, SIG_DFL);
+        if(signal(SIGTSTP, handler) == 0)
+            continue;
         if (signal(SIGINT, handler) == 0) // terminal interrupt -> handler
             continue;
         if (signal(SIGQUIT, handler) == 0) // terminal quit -> handler
             continue;
-        // if (signal(SIGTSTP, handler) == 0) // terminal stop -> ignore
-        //     continue;
+        if (signal(SIGCHLD, handler) == 0) // terminal quit -> handler
+            continue;
 
         frontPage(); // show the front page
 

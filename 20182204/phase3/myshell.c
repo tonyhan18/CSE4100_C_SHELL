@@ -24,6 +24,8 @@ int     g_JOBCNT = 1; // JOB의 갯수를 저장하고 있는 변수
 
 s_JOBS  g_job[MAX_JOB]; // JOB을 저장하고 있는 배열
 
+int     remove_job(int id);
+
 /********************************/
 /* function : parse */
 /* purpose : parsing the line by delim */
@@ -98,18 +100,35 @@ void    handler(int sig)
     {
         frontPage();
         fflush(stdout);
+        int pid = getpid();
+        remove_job(pid);
+        signal(SIGINT, SIG_DFL);
     }
     // terminal stop
     else if (sig == SIGTSTP)
     {
         frontPage();
         fflush(stdout);
+        int pid = getpid();
+        remove_job(pid);
+        signal(SIGTSTP, SIG_DFL);
     }
     // terminal quit
     else if (sig == SIGQUIT)
     {
         frontPage();
         fflush(stdout);
+        int pid = getpid();
+        remove_job(pid);
+        signal(SIGQUIT, SIG_DFL);
+    }
+    // child quit
+    else if (sig == SIGCHLD)
+    {
+        fflush(stdout);
+        int pid = getpid();
+        remove_job(pid);
+        signal(SIGCHLD, SIG_DFL);
     }
 }
 
@@ -151,11 +170,12 @@ void    exctCD(char **tokens)
 ////////////// backgroud ///////////////
 
 int     remove_job(int id) {
-    if (id > g_JOBCNT && g_JOBCNT > 0) {
+    if (id > MAX_JOB) {
         return (-1);
     }
 
-    g_job[id] = NULL;
+    g_job[id].pid = 0;
+    g_job[id].status = STATUS_TERMINATED;
     // for(int i = id ; i <= g_JOBCNT && i < MAX_JOB ; ++i)
     // {
     //     g_job[i] = g_job[i+1];
@@ -165,7 +185,7 @@ int     remove_job(int id) {
 }
 
 int     set_job_status(int id, int status) {
-    if (id > g_JOBCNT) {
+    if (id > MAX_JOB) {
         return (-1);
     }
 
@@ -174,11 +194,11 @@ int     set_job_status(int id, int status) {
 }
 
 int     print_job_status(int id) {
-    if (id > g_JOBCNT) {
+    if (id > MAX_JOB) {
         return (-1);
     }
 
-    if(g_job[id] != NULL)
+    if(g_job[id].pid != 0)
         printf("[%d] %d %-15s %s\n", id, g_job[id].pid, g_status[g_job[id].status], g_job[id].pName);
 
     // for (int i = 1 ; i <= g_JOBCNT ; ++i) {
@@ -211,8 +231,8 @@ int     wait_for_job(int id) {
 int     exctJobs(void) {
     int i;
 
-    for (i = 1; i <= g_JOBCNT; i++) {
-        if(g_job[i] != NULL)
+    for (i = 1; i <= MAX_JOB; i++) {
+        if(g_job[i].pid != 0)
             print_job_status(i);
     }
 
@@ -231,15 +251,14 @@ int     exctFg(char **tokens) {
     if (tokens[1][0] == '%') {
         job_id = atoi(tokens[1] + 1);
         pid = g_job[job_id].pid;
-        if (pid < 0) {
-            printf("fg %s: no such job\n", tokens[1]);
-            return (-1);
-        }
     } else {
         job_id = atoi(tokens[1]);
         pid = g_job[atoi(tokens[1])].pid;
     }
-
+    if (pid < 0 || job_id > g_JOBCNT) {
+        printf("fg %s: no such job\n", tokens[1]);
+        return (-1);
+    }
     if (kill(pid, SIGCONT) < 0) {
         printf("fg %d: job not found\n", pid);
         return (-1);
@@ -274,15 +293,15 @@ void    exctBg(char **tokens)
     if (tokens[1][0] == '%') {
         job_id = atoi(tokens[1] + 1);
         pid = g_job[job_id].pid;
-        if (pid < 0) {
-            printf("mysh: bg %s: no such job\n", tokens[1]);
-            return ;
-        }
     } else {
         job_id = atoi(tokens[1]);
         pid = g_job[atoi(tokens[1])].pid;
     }
 
+    if (pid < 0 || job_id > g_JOBCNT) {
+        printf("bg %s: no such job\n", tokens[1]);
+        return ;
+    }
     if (kill(pid, SIGCONT) < 0) {
         printf("mysh: bg %d: job not found\n", pid);
         return ;
@@ -309,15 +328,15 @@ void    exctKill(char **tokens) {
         job_id = atoi(tokens[1] + 1);
         pid = g_job[job_id].pid;
         //printf("%d %d\n", job_id, pid);
-        if (pid < 0) {
-            printf("kill %s: no such job\n", tokens[1]);
-            return ;
-        }
     } else {
         job_id = atoi(tokens[1]);
         pid = g_job[atoi(tokens[1])].pid;
     }
 
+    if (pid < 0 || job_id > g_JOBCNT) {
+        printf("kill %s: no such job\n", tokens[1]);
+        return ;
+    }
     if (kill(pid, SIGKILL) < 0) {
         printf("kill %d: job not found\n", pid);
         return ;
@@ -442,7 +461,18 @@ void    exctCMD()
                 return;
 
             int bgFlag = backgroundChk(tokens); // checkout if there is & mark
-            signal(SIGCHLD, SIG_DFL);           // check out child process is terminated
+
+            // signal control
+            signal(SIGTTIN, SIG_DFL);
+            signal(SIGTTOU, SIG_DFL);
+            if(signal(SIGTSTP, handler) == 0)
+                sleep(0);
+            if (signal(SIGINT, handler) == 0) 
+                sleep(0);
+            if (signal(SIGQUIT, handler) == 0) 
+                sleep(0);
+            if (signal(SIGCHLD, handler) == 0) 
+                sleep(0);
 
             // check out if cmd function is built-in
             //strlwr(tokens[0]); // to lower the cmd
@@ -473,12 +503,6 @@ void    exctCMD()
                     printf("fork error\n");
                     exit(1);
                 }
-                signal(SIGINT, SIG_DFL);
-                signal(SIGQUIT, SIG_DFL);
-                signal(SIGTSTP, SIG_DFL);
-                signal(SIGTTIN, SIG_DFL);
-                signal(SIGTTOU, SIG_DFL);
-                signal(SIGCHLD, SIG_DFL);
                 
                 // child process
                 if (pid == 0)
@@ -516,17 +540,23 @@ void    exctCMD()
                     else
                     {
                         if(g_JOBCNT >= MAX_JOB) continue;
-                        int     empty = 1;
-                        for(int i = 1 ; i <= g_JOBCNT ; ++i)
+                        int     empty = -1;
+                        for(int i = 1 ; i <= MAX_JOB ; ++i)
                         {
-                            if(g_job[i] == NULL) empty = i;
+                            if(g_job[i].pid == 0)
+                            {
+                                //printf("pid : %d\n", g_job[i].pid);
+                                empty = i;
+                                break;
+                            }
                         }
 
-                        if(empty == g_JOBCNT) g_JOBCNT++;
-                            g_job[empty].status = STATUS_RUNNING;
-                            g_job[empty].pid = pid;
-                            strcpy(g_job[empty].pName, cur_cmd);
-                            printf("[%d] %d\n", g_JOBCNT, g_job[empty].pid);
+                        if(empty >= g_JOBCNT) g_JOBCNT++;
+                        //printf("%d | %d\n", empty, g_JOBCNT);
+                        g_job[empty].status = STATUS_RUNNING;
+                        g_job[empty].pid = pid;
+                        strcpy(g_job[empty].pName, cur_cmd);
+                        printf("[%d] %d\n", empty, g_job[empty].pid);
                         //wait_for_job(g_JOBCNT);
                         signal(SIGTTOU, SIG_IGN);
                         signal(SIGTTOU, SIG_DFL);
@@ -536,6 +566,7 @@ void    exctCMD()
                 }
             }
             i++;
+            sleep(0);
         }
         g_inFlag = 0;
         g_outFlag = 1;
@@ -570,15 +601,16 @@ int main(int argc, char *argv[])
         g_line[0] = '\0';
 
         // signal control
-        //signal(SIGINT, SIG_IGN);          // terminal interrupt -> ignore
-        //signal(SIGQUIT, SIG_IGN);         // terminal quit -> ignore
-        signal(SIGTSTP, SIG_DFL);         // terminal stop -> ignore
+        signal(SIGTTIN, SIG_DFL);
+        signal(SIGTTOU, SIG_DFL);
+        if(signal(SIGTSTP, handler) == 0)
+            continue;
         if (signal(SIGINT, handler) == 0) // terminal interrupt -> handler
             continue;
         if (signal(SIGQUIT, handler) == 0) // terminal quit -> handler
             continue;
-        // if (signal(SIGTSTP, handler) == 0) // terminal stop -> ignore
-        //     continue;
+        if (signal(SIGCHLD, handler) == 0) // terminal quit -> handler
+            continue;
 
         frontPage(); // show the front page
 
