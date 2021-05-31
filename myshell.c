@@ -6,10 +6,11 @@
 
 #include "myshell.h"
 #define MAX_LINE 100001
+#define MAX_JOB 1001
 
 char    g_line[1000001];
 char    g_homeDir[1001];
-char    *g_status[] = {
+const char    *g_status[] = { // JOB의 상태를 저장하는 변수
     "running",
     "done",
     "suspended",
@@ -19,9 +20,9 @@ char    *g_status[] = {
 
 int     g_inFlag = 0;
 int     g_outFlag = 1;
-int     g_JOBCNT = 0;
+int     g_JOBCNT = 1; // JOB의 갯수를 저장하고 있는 변수
 
-s_JOBS  g_job[1001];
+s_JOBS  g_job[MAX_JOB]; // JOB을 저장하고 있는 배열
 
 /********************************/
 /* function : parse */
@@ -154,11 +155,12 @@ int     remove_job(int id) {
         return (-1);
     }
 
-    for(int i = id ; i <= g_JOBCNT && i < MAX_LINE ; ++i)
-    {
-        g_job[i] = g_job[i+1];
-    }
-    if (g_JOBCNT > 0) g_JOBCNT --;
+    g_job[id] = NULL;
+    // for(int i = id ; i <= g_JOBCNT && i < MAX_JOB ; ++i)
+    // {
+    //     g_job[i] = g_job[i+1];
+    // }
+    if (g_JOBCNT > 1) g_JOBCNT --;
     return 0;
 }
 
@@ -176,11 +178,13 @@ int     print_job_status(int id) {
         return (-1);
     }
 
-    printf("[%d]", id);
+    if(g_job[id] != NULL)
+        printf("[%d] %d %-15s %s\n", id, g_job[id].pid, g_status[g_job[id].status], g_job[id].pName);
 
-    for (int i = 1 ; i <= g_JOBCNT ; ++i) {
-        printf("\t%d %-15s %s\n", g_job[i].pid, g_status[g_job[i].status], g_job[i].pName);
-    }
+    // for (int i = 1 ; i <= g_JOBCNT ; ++i) {
+    //     if(id == i)
+    //     printf("%d %-15s %s\n", g_job[i].pid, g_status[g_job[i].status], g_job[i].pName);
+    // }
     return (0);
 }
 
@@ -208,7 +212,8 @@ int     exctJobs(void) {
     int i;
 
     for (i = 1; i <= g_JOBCNT; i++) {
-        print_job_status(i);
+        if(g_job[i] != NULL)
+            print_job_status(i);
     }
 
     return (0);
@@ -401,7 +406,7 @@ int backgroundChk(char **tokens)
 /* purpose : excute line */
 /* return : void */
 /********************************/
-void exctCMD()
+void    exctCMD()
 {
     char *tempSemi[100] = {NULL};
     char *tempPipe[100] = {NULL};
@@ -437,7 +442,7 @@ void exctCMD()
                 return;
 
             int bgFlag = backgroundChk(tokens); // checkout if there is & mark
-            signal(SIGCHLD, handler);           // check out child process is terminated
+            signal(SIGCHLD, SIG_DFL);           // check out child process is terminated
 
             // check out if cmd function is built-in
             //strlwr(tokens[0]); // to lower the cmd
@@ -510,10 +515,18 @@ void exctCMD()
                     // if background process is started
                     else
                     {
-                        g_job[g_JOBCNT++].status = STATUS_RUNNING;
-                        g_job[g_JOBCNT].pid = pid;
-                        strcpy(g_job[g_JOBCNT].pName, cur_cmd);
-                        printf("[%d] %d\n", g_JOBCNT, g_job[g_JOBCNT].pid);
+                        if(g_JOBCNT >= MAX_JOB) continue;
+                        int     empty = 1;
+                        for(int i = 1 ; i <= g_JOBCNT ; ++i)
+                        {
+                            if(g_job[i] == NULL) empty = i;
+                        }
+
+                        if(empty == g_JOBCNT) g_JOBCNT++;
+                            g_job[empty].status = STATUS_RUNNING;
+                            g_job[empty].pid = pid;
+                            strcpy(g_job[empty].pName, cur_cmd);
+                            printf("[%d] %d\n", g_JOBCNT, g_job[empty].pid);
                         //wait_for_job(g_JOBCNT);
                         signal(SIGTTOU, SIG_IGN);
                         signal(SIGTTOU, SIG_DFL);
@@ -530,7 +543,7 @@ void exctCMD()
     }
 }
 
-/********************************/
+/********************************/ 
 /* function : whiteSpace */
 /* purpose : check out cmd is exist */
 /* return : int */
